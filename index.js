@@ -1,0 +1,139 @@
+const { Client, GatewayIntentBits, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, REST, Routes, Partials, ModalBuilder, TextInputBuilder, TextInputStyle, PermissionsBitField } = require('discord.js');
+const { SlashCommandBuilder } = require('@discordjs/builders');
+const { clientId, guildId, token } = require('./config.json');
+
+const client = new Client({
+    intents: [
+        GatewayIntentBits.Guilds,
+        GatewayIntentBits.GuildMembers,
+        GatewayIntentBits.GuildMessages,
+        GatewayIntentBits.MessageContent,
+        GatewayIntentBits.GuildPresences
+    ],
+    partials: [Partials.GuildMember]
+});
+
+client.once('ready', () => {
+    console.log('Bot is Ready!');
+    console.log('Code by Wick Studio');
+    console.log('discord.gg/wicks');
+});
+
+client.on('interactionCreate', async interaction => {
+    if (!interaction.isChatInputCommand()) return;
+
+    if (interaction.commandName === 'bc') {
+        if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
+            return interaction.reply({ content: 'ليس لديك صلاحية لاستخدام هذا الامر.', ephemeral: true });
+        }
+
+        const embed = new EmbedBuilder()
+            .setColor('#0099ff')
+            .setTitle('لوحة تحكم البرودكاست')
+            .setDescription('الرجاء اختيار نوع الارسال للاعضاء.');
+
+        const row = new ActionRowBuilder()
+            .addComponents(
+                new ButtonBuilder()
+                    .setCustomId('send_all')
+                    .setLabel('ارسل للجميع')
+                    .setStyle(ButtonStyle.Primary),
+                new ButtonBuilder()
+                    .setCustomId('send_online')
+                    .setLabel('ارسل للمتصلين')
+                    .setStyle(ButtonStyle.Success),
+                new ButtonBuilder()
+                    .setCustomId('send_offline')
+                    .setLabel('ارسل للغير المتصلين')
+                    .setStyle(ButtonStyle.Danger),
+            );
+
+        await interaction.reply({ embeds: [embed], components: [row], ephemeral: true });
+    }
+});
+
+client.on('interactionCreate', async interaction => {
+    if (interaction.isButton()) {
+        let customId;
+        if (interaction.customId === 'send_all') {
+            customId = 'modal_all';
+        } else if (interaction.customId === 'send_online') {
+            customId = 'modal_online';
+        } else if (interaction.customId === 'send_offline') {
+            customId = 'modal_offline';
+        }
+
+        const modal = new ModalBuilder()
+            .setCustomId(customId)
+            .setTitle('Type your message');
+
+        const messageInput = new TextInputBuilder()
+            .setCustomId('messageInput')
+            .setLabel('اكتب رسالتك هنا')
+            .setStyle(TextInputStyle.Paragraph);
+
+        modal.addComponents(new ActionRowBuilder().addComponents(messageInput));
+
+        await interaction.showModal(modal);
+    }
+
+    if (interaction.isModalSubmit()) {
+        const message = interaction.fields.getTextInputValue('messageInput');
+
+        const guild = interaction.guild;
+        if (!guild) return;
+
+        if (interaction.customId === 'modal_all') {
+            await guild.members.fetch().then(members => {
+                members.forEach(member => {
+                    if (!member.user.bot) {
+                        member.send(message).catch(console.error);
+                    }
+                });
+            });
+        } else if (interaction.customId === 'modal_online') {
+            await guild.members.fetch().then(members => {
+                members.forEach(member => {
+                    if (!member.user.bot && member.presence && member.presence.status !== 'offline') {
+                        member.send(message).catch(console.error);
+                    }
+                });
+            });
+        } else if (interaction.customId === 'modal_offline') {
+            await guild.members.fetch().then(members => {
+                members.forEach(member => {
+                    if (!member.user.bot && (!member.presence || member.presence.status === 'offline')) {
+                        member.send(message).catch(console.error);
+                    }
+                });
+            });
+        }
+
+        await interaction.reply({ content: 'Message sent successfully.', ephemeral: true });
+    }
+});
+
+const commands = [
+    new SlashCommandBuilder()
+        .setName('bc')
+        .setDescription('ارسال رسالة للاعضاء')
+].map(command => command.toJSON());
+
+const rest = new REST({ version: '10' }).setToken(token);
+
+(async () => {
+    try {
+        console.log('Started refreshing application (/) commands.');
+
+        await rest.put(
+            Routes.applicationGuildCommands(clientId, guildId),
+            { body: commands },
+        );
+
+        console.log('Successfully reloaded application (/) commands.');
+    } catch (error) {
+        console.error(error);
+    }
+})();
+
+client.login(token);
