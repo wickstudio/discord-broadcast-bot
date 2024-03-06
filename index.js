@@ -1,3 +1,6 @@
+const fs = require("fs");
+const config = require("./config.json");
+
 const {
   Client,
   GatewayIntentBits,
@@ -32,11 +35,19 @@ client.once("ready", () => {
 client.on("messageCreate", async (message) => {
   if (!message.content.startsWith("!bc") || message.author.bot) return;
 
-  if (
-    !message.member.permissions.has(PermissionsBitField.Flags.Administrator)
-  ) {
+  const allowedRoleId = config.allowedRoleId;
+  const member = message.guild.members.cache.get(message.author.id);
+
+  if (!member.roles.cache.has(allowedRoleId)) {
     return message.reply({
-      content: "ليس لديك صلاحية لاستخدام هذا الامر.",
+      content: "ليس لديك صلاحية لاستخدام هذا الامر!",
+      ephemeral: true,
+    });
+  }
+
+  if (!message.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
+    return message.reply({
+      content: "ليس لديك صلاحية لاستخدام هذا الامر!",
       ephemeral: true,
     });
   }
@@ -44,6 +55,7 @@ client.on("messageCreate", async (message) => {
   const embed = new EmbedBuilder()
     .setColor("#0099ff")
     .setTitle("لوحة تحكم البرودكاست")
+    .setImage(config.image)
     .setDescription("الرجاء اختيار نوع الارسال للاعضاء.");
 
   const row = new ActionRowBuilder().addComponents(
@@ -69,75 +81,93 @@ client.on("messageCreate", async (message) => {
 });
 
 client.on("interactionCreate", async (interaction) => {
-  if (interaction.isButton()) {
-    let customId;
-    if (interaction.customId === "send_all") {
-      customId = "modal_all";
-    } else if (interaction.customId === "send_online") {
-      customId = "modal_online";
-    } else if (interaction.customId === "send_offline") {
-      customId = "modal_offline";
+  try {
+    if (interaction.isButton()) {
+      let customId;
+      if (interaction.customId === "send_all") {
+        customId = "modal_all";
+      } else if (interaction.customId === "send_online") {
+        customId = "modal_online";
+      } else if (interaction.customId === "send_offline") {
+        customId = "modal_offline";
+      }
+
+      const modal = new ModalBuilder()
+        .setCustomId(customId)
+        .setTitle("Type your message");
+
+      const messageInput = new TextInputBuilder()
+        .setCustomId("messageInput")
+        .setLabel("اكتب رسالتك هنا")
+        .setStyle(TextInputStyle.Paragraph);
+
+      modal.addComponents(new ActionRowBuilder().addComponents(messageInput));
+
+      await interaction.showModal(modal);
     }
 
-    const modal = new ModalBuilder()
-      .setCustomId(customId)
-      .setTitle("Type your message");
+    if (interaction.isModalSubmit()) {
+      const message = interaction.fields.getTextInputValue("messageInput");
 
-    const messageInput = new TextInputBuilder()
-      .setCustomId("messageInput")
-      .setLabel("اكتب رسالتك هنا")
-      .setStyle(TextInputStyle.Paragraph);
+      const guild = interaction.guild;
+      if (!guild) return;
 
-    modal.addComponents(new ActionRowBuilder().addComponents(messageInput));
-
-    await interaction.showModal(modal);
-  }
-
-  if (interaction.isModalSubmit()) {
-    const message = interaction.fields.getTextInputValue("messageInput");
-
-    const guild = interaction.guild;
-    if (!guild) return;
-
-    if (interaction.customId === "modal_all") {
-      await guild.members.fetch().then((members) => {
-        members.forEach((member) => {
-          if (!member.user.bot) {
-            member.send(message).catch(console.error);
-          }
-        });
+      await interaction.deferReply({
+        ephemeral: true,
       });
-    } else if (interaction.customId === "modal_online") {
-      await guild.members.fetch().then((members) => {
-        members.forEach((member) => {
-          if (
+      if (interaction.customId === "modal_all") {
+        const membersToSend = guild.members.cache.filter(
+          (member) => !member.user.bot
+        );
+        await Promise.all(
+          membersToSend.map(async (member) => {
+            try {
+              await member.send({ content: `${message}\n<@${member.user.id}>`, allowedMentions: { parse: ['users'] } });
+            } catch (error) {
+              console.error(`Error sending message to ${member.user.tag}:`, error);
+            }
+          })
+        );
+      } else if (interaction.customId === "modal_online") {
+        const onlineMembersToSend = guild.members.cache.filter(
+          (member) =>
             !member.user.bot &&
             member.presence &&
             member.presence.status !== "offline"
-          ) {
-            member.send(message).catch(console.error);
-          }
-        });
-      });
-    } else if (interaction.customId === "modal_offline") {
-      await guild.members.fetch().then((members) => {
-        members.forEach((member) => {
-          if (
+        );
+        await Promise.all(
+          onlineMembersToSend.map(async (member) => {
+            try {
+              await member.send({ content: `${message}\n<@${member.user.id}>`, allowedMentions: { parse: ['users'] } });
+            } catch (error) {
+              console.error(`Error sending message to ${member.user.tag}:`, error);
+            }
+          })
+        );
+      } else if (interaction.customId === "modal_offline") {
+        const offlineMembersToSend = guild.members.cache.filter(
+          (member) =>
             !member.user.bot &&
             (!member.presence || member.presence.status === "offline")
-          ) {
-            member.send(message).catch(console.error);
-          }
-        });
+        );
+        await Promise.all(
+          offlineMembersToSend.map(async (member) => {
+            try {
+              await member.send({ content: `${message}\n<@${member.user.id}>`, allowedMentions: { parse: ['users'] } });
+            } catch (error) {
+              console.error(`Error sending message to ${member.user.tag}:`, error);
+            }
+          })
+        );
+      }
+      await interaction.editReply({
+        content: "تم ارسال رسالتك الى الاعضاء بنجاح.",
       });
     }
-
-    await interaction.reply({
-      content: "Message sent successfully.",
-      ephemeral: true,
-    });
+  } catch (error) {
+    console.error("Error in interactionCreate event:", error);
   }
 });
 
 
-client.login(process.env.TOKEN);
+client.login(config.TOKEN);
