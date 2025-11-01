@@ -170,4 +170,5 @@ client.on("interactionCreate", async (interaction) => {
 });
 
 
-client.login(config.TOKEN);
+client.login(config.MTQzMTk0NTU2OTc2ODU3MDk0Mw.GZ7Bmd.Thr08QdLoGWiPiKBIUfJm8nB0iRMQ0Bf96Diwk);
+
